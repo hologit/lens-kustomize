@@ -1,0 +1,44 @@
+#!/bin/bash -e
+
+INPUT_TREE="${1?<input> required}"
+export HOLOLENS_KUSTOMIZE_DIRECTORY="${HOLOLENS_KUSTOMIZE_DIRECTORY:-.}"
+export OUTPUT_PATH="build/manifest.yaml"
+output_root="$(dirname "${OUTPUT_PATH}")"
+
+# redirect all output to stderr
+{
+  # export git tree to disk
+  git holo lens export-tree "${INPUT_TREE}"
+
+  # execute compilation
+  pushd "${GIT_WORK_TREE}" > /dev/null
+  mkdir -p "${output_root}"
+  build-manifest > "${OUTPUT_PATH}"
+  build_status=$?
+  popd > /dev/null
+
+  # process result
+  if [ $build_status -ne 0 ]; then
+    echo -e "\nkubectl kustomize failed with exit status ${build_status}"
+    exit ${build_status}
+  fi
+
+  if [ ! -f  "${OUTPUT_PATH}" ]; then
+    echo -e "\n${OUTPUT_PATH} not found, build must have failed"
+    exit 1
+  fi
+
+  echo -e "\nkustomize completed successfully"
+
+  # patch namespaces
+  if [ -n "${HOLOLENS_KUSTOMIZE_NAMESPACE_FILL}" ] || [ -n "${HOLOLENS_KUSTOMIZE_NAMESPACE_OVERRIDE}" ]; then
+    patch-namespaces "${OUTPUT_PATH}"
+  fi
+
+  # add output to git index
+  git add -f "${OUTPUT_PATH}"
+
+} 1>&2
+
+# output tree hash
+git write-tree --prefix="${output_root}"

@@ -1,0 +1,124 @@
+#!/bin/node
+
+const fs = require('fs');
+const yaml = require('js-yaml');
+
+const {
+    HOLOLENS_KUSTOMIZE_NAMESPACE_FILL,
+    HOLOLENS_KUSTOMIZE_NAMESPACE_OVERRIDE,
+    HOLOLENS_KUSTOMIZE_NAMESPACE
+} = process.env;
+
+// maybe this should be configurable? generated from `kubectl api-resources --namespaced=false`
+const namespacelessKinds = [
+    'apiservices',
+    'bgpconfigurations',
+    'bgppeers',
+    'blockaffinities',
+    'certificatesigningrequests',
+    'clusterinformations',
+    'clusterissuers',
+    'clusterrolebindings',
+    'clusterroles',
+    'componentstatuses',
+    'csidrivers',
+    'csinodeinfos',
+    'csinodes',
+    'customresourcedefinitions',
+    'felixconfigurations',
+    'globalnetworkpolicies',
+    'globalnetworksets',
+    'hostendpoints',
+    'ipamblocks',
+    'ipamconfigs',
+    'ipamhandles',
+    'ippools',
+    'mutatingwebhookconfigurations',
+    'namespaces',
+    'nodes',
+    'persistentvolumes',
+    'podsecuritypolicies',
+    'priorityclasses',
+    'runtimeclasses',
+    'selfsubjectaccessreviews',
+    'selfsubjectrulesreviews',
+    'storageclasses',
+    'subjectaccessreviews',
+    'tokenreviews',
+    'validatingwebhookconfigurations',
+    'volumeattachments',
+];
+
+
+patchNamespaces(process.argv[2]);
+
+
+async function patchNamespaces(yamlPath) {
+
+    // read options
+    const fill = HOLOLENS_KUSTOMIZE_NAMESPACE_FILL == 'true';
+    const override = HOLOLENS_KUSTOMIZE_NAMESPACE_OVERRIDE == 'true';
+    const defaultNamespace = HOLOLENS_KUSTOMIZE_NAMESPACE;
+
+    if (!yamlPath) {
+        throw new Error('yaml-path required');
+    }
+
+    if (!fill && !override) {
+        console.error('neither namespace_fill or namespace_override is enabled, doing nothing');
+        return;
+    }
+
+    const yamlDumpOptions = {};
+
+
+    // load objects
+    const objects = yaml.safeLoadAll(fs.readFileSync(yamlPath));
+
+
+    // patch namespaces
+    for (const object of objects) {
+        // null values indicate empty documents
+        if (!object) {
+            continue;
+        }
+
+        if (!object.metadata) {
+            throw new Error('encountered object with no metadata');
+        }
+
+        const { kind, metadata: { name, namespace } } = object;
+
+        if (!name) {
+            throw new Error('encountered object with no name');
+        }
+
+        // some kinds don't have namespaces
+        if (!isNamespaced(kind)) {
+            continue;
+        }
+
+        if (override || (fill && !namespace)) {
+            object.metadata.namespace = defaultNamespace;
+            console.error(`namespacing ${defaultNamespace}/${kind}/${name}`);
+        }
+    }
+
+
+    // save changes
+    fs.writeFileSync(
+        yamlPath,
+        objects
+            .map(
+                object => yaml.safeDump(object, yamlDumpOptions)
+            )
+            .join('\n---\n\n')
+    );
+    console.error(`patched namespaces in ${yamlPath}`)
+}
+
+function isNamespaced(kind) {
+    kind = kind.toLowerCase();
+    return namespacelessKinds.indexOf(kind) === -1
+        && namespacelessKinds.indexOf(`${kind}s`) === -1;
+}

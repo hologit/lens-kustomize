@@ -1,0 +1,17 @@
+#!/bin/bash -e
+
+echo "executing: kubectl kustomize ${HOLOLENS_KUSTOMIZE_DIRECTORY}"
+(
+    if [ -n "${HOLOLENS_KUSTOMIZE_NAMESPACE}" ]; then
+        cat <<End-of-Yaml
+---
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: "${HOLOLENS_KUSTOMIZE_NAMESPACE}"
+---
+End-of-Yaml
+    fi
+
+    kubectl kustomize "${HOLOLENS_KUSTOMIZE_DIRECTORY}"
+) > "${OUTPUT_PATH}"
